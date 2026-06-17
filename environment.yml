@@ -1,0 +1,24 @@
+name: pokemon_tcg
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - pytorch
+  - tqdm
+  - joblib
+  - networkx
+  - cryptography
+  - pytest
+  - jupyter
+  - ipykernel
+  - pip
+  - pip:
+      - kaggle

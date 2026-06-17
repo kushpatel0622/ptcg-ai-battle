@@ -1,0 +1,26 @@
+# --- Secrets: NEVER commit ---
+kaggle.json
+.kaggle/
+
+# --- Large competition download (each person re-fetches with the kaggle CLI) ---
+ptcg-data/
+
+# --- Build / run artifacts ---
+*.tar.gz
+result.html
+comp-pages.txt
+replays/
+logs/
+episode-*.json
+
+# --- Python ---
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+env/
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+.DS_Store
