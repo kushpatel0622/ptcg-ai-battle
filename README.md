@@ -3,6 +3,11 @@
 Our agent for the [Pokémon TCG AI Battle Challenge](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle)
 (Kaggle Simulation competition).
 
+## Project docs
+- **[docs/PLAN.md](docs/PLAN.md)** — overall strategy, architecture, milestones (LLM arena → distilled neural policy).
+- **[docs/SETUP.md](docs/SETUP.md)** — local setup + runbook for the team (requirements, how to run sims/training, Kaggle token, where everything lives).
+- **[docs/TRAINING_LOG.md](docs/TRAINING_LOG.md)** — running record of every training/simulation round and what it learned.
+
 ## Layout
 - `submission/` — what we submit: `main.py` (the agent), `deck.csv`, and the `cg/` engine.
 - `environment.yml` — shared conda environment.

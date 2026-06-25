@@ -1,9 +1,19 @@
 # --- Secrets: NEVER commit ---
 kaggle.json
 .kaggle/
+.env
+
+# --- Training data & checkpoints (regenerated locally) ---
+data/
+runs/
+*.pt
+*.ckpt
+# note: submission/policy/weights.npz IS committed (ships in the tar.gz)
 
 # --- Large competition download (each person re-fetches with the kaggle CLI) ---
 ptcg-data/
+# Card-ID reference PDFs exceed GitHub's 100MB limit; keep them locally only.
+pokemon-tcg-ai-battle/*.pdf
 
 # --- Build / run artifacts ---
 *.tar.gz

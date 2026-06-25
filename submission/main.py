@@ -1,38 +1,28 @@
-import os
-import random
+"""Submission agent (cabt: Pokemon TCG AI Battle).
 
-from cg.api import Observation, to_observation_class
+The grader calls the LAST def in this file: agent(observation) -> action.
+At deck selection (obs.select is None) the agent returns the 60-card deck list;
+otherwise it returns option indices. Self-contained: needs only the vendored
+modules (search_teacher/heuristic_agent/cards/deck_io) + cg/. No torch/numpy,
+no file reads. Deck = mega_starmie_ex_2; piloted by SearchTeacher (2-ply).
 
-def read_deck_csv() -> list[int]:
-    """Read deck.csv.
-    
-    Returns:
-        list[int]: A list of card IDs in the deck.
-    """
-    file_path = "deck.csv"
-    if not os.path.exists(file_path):
-        file_path = "/kaggle_simulations/agent/" + file_path
-    with open(file_path, "r") as file:
-        csv = file.read().split("\n")
-    deck = []
-    for i in range(60):
-        deck.append(int(csv[i]))
-    return deck
+TIMING (cabt): actTimeout=0 + ~12 s remainingOverageTime pool => ~12 s of TOTAL
+thinking PER GAME. Measured ~2-3 s/game (4x margin). time_budget=1.0 is a
+per-move outlier cap. If timeouts appear vs long games, set plies=1.
+"""
+from search_teacher import SearchTeacher
 
-def agent(obs_dict: dict) -> list[int]:
-    """Implement Your Pokémon Trading Card Game Agent.
+DECK = [
+    860, 860, 860, 860, 861, 861, 861, 1030, 1030, 1030, 1030, 1031,
+    1031, 1031, 1189, 1189, 1189, 1189, 1227, 1227, 1227, 1227, 1229, 1229,
+    1229, 1182, 1182, 1225, 1225, 1211, 1119, 1119, 1119, 1119, 1086, 1086,
+    1086, 1086, 1122, 1122, 1122, 1145, 1145, 1123, 1123, 1097, 1252, 1252,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 11, 17, 12,
+]
 
-    Each element in the returned list must be >= 0 and < len(obs.select.option).
-    The list length must be between obs.select.minCount and obs.select.maxCount (inclusive), with no duplicate elements.
-    
-    Returns:
-        list[int]: A list of option index.
-    """
-    obs: Observation = to_observation_class(obs_dict)
-    if obs.select == None:
-        # In the initial selection, the obs.select is None, and it is necessary to return the deck.
-        # The deck is a list of 60 card IDs.
-        # The deck must comply with the Pokémon Trading Card Game rules.
-        return read_deck_csv()
-    
-    return random.sample(list(range(len(obs.select.option))), obs.select.maxCount)  # select randomly
+_AGENT = SearchTeacher(deck=DECK, plies=2, samples=1,
+                       dynamic_attack=True, time_budget=1.0)
+
+
+def agent(observation):
+    return _AGENT(observation)

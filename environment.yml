@@ -2,6 +2,7 @@ name: pokemon_tcg
 
 channels:
   - conda-forge
+  - nodefaults
 
 dependencies:
   - python=3.11
@@ -22,3 +23,8 @@ dependencies:
   - pip
   - pip:
       - kaggle
+      - kaggle-environments   # local self-play / replay rendering: make("cabt")
+      - anthropic             # Claude teacher agent
+      - openai                # GPT teacher agent
+      - ollama                # local open-model teacher agent
+      - python-dotenv         # load API keys from .env
