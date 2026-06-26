@@ -21,7 +21,8 @@ DECK = [
 ]
 
 _AGENT = SearchTeacher(deck=DECK, plies=2, samples=1,
-                       dynamic_attack=True, time_budget=1.0)
+                       dynamic_attack=True, time_budget=1.0,
+                       rollout_policy="improved")
 
 
 def agent(observation):

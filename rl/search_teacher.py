@@ -1,9 +1,9 @@
 """SearchTeacher: a forward-search agent built on the engine's lookahead.
 
-The deployed submission agent. ``callable(obs_dict) -> list[int]`` (the
-Kaggle/cabt interface): returns the 60-card deck at selection, otherwise option
-indices. Pure forward search over the bundled ``cg`` engine — no learned
-parameters and no numpy/torch, so it runs anywhere ``cg`` imports.
+Same interface as ``baselines.heuristic_agent.heuristic_agent``
+(``callable(obs_dict) -> list[int]``), so it can pilot a deck in
+``engine.harness.play_match`` and serve as a stronger teacher for behavior
+cloning. It is also deployable as the submission agent (needs only ``cg``).
 
 Strategy
 --------
@@ -49,9 +49,9 @@ from time import perf_counter
 from cg.api import to_observation_class
 from cg.api import search_begin, search_step, search_end
 
-from heuristic_agent import heuristic_agent, _choose as _heur_choose, _sanitize as _heur_sanitize
-from cards import get_card_db
-from deck_io import default_deck
+from baselines.heuristic_agent import heuristic_agent, _choose as _heur_choose, _sanitize as _heur_sanitize
+from engine.cards import get_card_db
+from engine.decks import default_deck
 
 # --- Generic opponent filler (both valid per the API docs) ---
 _STARYU_ID = 1030      # a Basic Pokémon
@@ -181,19 +181,21 @@ def _choose_dyn(sel, obs, db):
     return _heur_choose(sel, obs, db)
 
 
-# Attacks that DON'T hit the opponent's active (chosen target / spread); excluded
-# from the lethal-KO shortcut (their damage isn't applied to the active).
+# Attacks that DON'T hit the opponent's active (chosen target / spread), so their
+# damage must not be compared to the active's HP in the lethal-KO shortcut.
 _SPREAD_ATTACKS = {183, 252}   # Cruel Arrow (snipe), Sonic Peridot (each ex)
 
 
 def _improved_pick(sel, obs, db, bench_when_thin):
-    """Core improved rollout pilot (MAIN only); returns an option-index list or None
-    to defer to the dynamic heuristic. See docs/strategies/S7-rollout-pilot.md.
-      1. LETHAL KO: an ATTACK that hits the active with true damage >= opp active HP
-         is taken now -- banks the KO without overcommitting the hand (less Resentful
-         Refrain next turn). Spread/snipe attacks are excluded.
-      2. BENCH-WHEN-THIN (only if bench_when_thin): if our bench is empty, play a Basic
-         to the bench, resolved via the option's HAND INDEX (PLAY carries `index`)."""
+    """Core of the improved rollout pilot (MAIN only); returns an option-index list
+    or None to defer to the dynamic heuristic. See docs/strategies/S7-rollout-pilot.md.
+      1. LETHAL KO: if an ATTACK that hits the active has true damage >= the opp
+         active's HP, take it now -- banks the KO without overcommitting the hand
+         (smaller hand => less Resentful Refrain taken next turn). Spread/snipe
+         attacks (don't hit the active) are excluded from this shortcut.
+      2. BENCH-WHEN-THIN (only if bench_when_thin): if our bench is empty, play a
+         Basic to the bench first. Resolved via the option's HAND INDEX (PLAY options
+         carry `index`, not `cardId`)."""
     from cg.api import SelectType, OptionType
     if sel.type != SelectType.MAIN or obs.current is None:
         return None
@@ -241,9 +243,10 @@ def _choose_improved_bench(sel, obs, db):
 class SearchTeacher:
     def __init__(self, deck=None, rng=None, plies=1, opp_model=None, samples=1,
                  override_margin=None, time_budget=None,
-                 w_prize=None, w_dmg=None, w_hp=None, dynamic_attack=True,
-                 w_bench=0.0, fragile_penalty=0.0, bench_target=3, w_handpen=0.0,
-                 rollout_policy="heuristic"):
+                 w_prize=None, w_dmg=None, w_hp=None,
+                 value_net=None, v_scale=0.0, dynamic_attack=True,
+                 w_bench=0.0, fragile_penalty=0.0, bench_target=3,
+                 w_handpen=0.0, rollout_policy="heuristic"):
         """deck: our full 60-card deck (list of card ids). Used to determinize
         our own hidden cards. Falls back to ``default_deck()`` if omitted.
 
@@ -266,8 +269,9 @@ class SearchTeacher:
         self.deck = list(deck) if deck else list(default_deck())
         self.rng = rng or random.Random(0)
         # plies = rollout horizon in half-turns past the current decision. 1 = end
-        # of my turn; 2 = after the opponent's reply; 3+ = deeper. The large
-        # per-game time budget leaves room to go past 2 (see docs/REPORT.md S3).
+        # of my turn (legacy); 2 = after the opponent's reply; 3+ = deeper (my
+        # turn -> opp -> my turn ...). The large per-game time budget (~600s)
+        # leaves ample room to go past 2 (see docs/REPORT.md S3).
         self.plies = max(1, int(plies)) if plies else 1
         self.rollout_depth = ROLLOUT_DEPTH if self.plies == 1 else 40 + 70 * self.plies
         # The opponent model / multi-sample only matter once the opponent's turn is
@@ -298,22 +302,36 @@ class SearchTeacher:
         self.w_prize = W_PRIZE if w_prize is None else float(w_prize)
         self.w_dmg = W_DMG if w_dmg is None else float(w_dmg)
         self.w_hp = W_HP if w_hp is None else float(w_hp)
+        # Optional learned leaf evaluator (AlphaZero-style). `value_net` is a
+        # callable: state_vec[float32, STATE_DIM] -> scalar in [0,1] = P(the
+        # to-move player wins). Used ONLY at a my-perspective leaf (the 2-ply
+        # horizon = start of my next turn), added as `v_scale * V`. Keeps the
+        # exact prize/win terms; typically paired with w_dmg=w_hp=0 so V replaces
+        # the crude hp-sum board proxy. None -> no torch/numpy import (clean).
+        self.value_net = value_net
+        self.v_scale = float(v_scale)
         # Rank ATTACK options by true (dynamic) damage so the agent and its
         # rollout opponent use Resentful Refrain etc. (the heuristic can't see
         # them). Strictly more correct; on by default.
         self.dynamic_attack = dynamic_attack
-        # --- Robustness terms (default 0 => baseline unchanged). After replay
-        # 81844919 showed the agent routinely plays a lone/thin board (one KO from
-        # a board-out loss), w_bench rewards developing a bench and fragile_penalty
-        # punishes being at <=1 Pokemon in play at the rollout leaf. w_handpen
-        # penalises a fat hand when the opponent fields a Resentful-Refrain (1240)
-        # attacker. See docs/REPORT.md S1/S2.
+        # --- Robustness terms (default 0 => baseline behaviour unchanged). Added
+        # after replay 81844919 showed the agent routinely plays a lone/thin board
+        # (15% never bench, 42% <=1 Pokemon in play) and holds fat hands that feed
+        # the mirror's Resentful Refrain (50 x opp hand). See docs/REPORT.md S1/S2.
+        # w_bench: reward per benched Pokemon (capped at bench_target) -> develop.
+        # fragile_penalty: penalty when <=1 Pokemon in play at the leaf (one KO
+        #   from losing -> "no active Pokemon" loss). Read AFTER the opp reply at
+        #   2-ply, so it directly values surviving on board.
+        # w_handpen: penalty per card in my hand when an opponent attacker in play
+        #   can use Resentful Refrain (attack 1240), discouraging fat hands.
         self.w_bench = float(w_bench)
         self.fragile_penalty = float(fragile_penalty)
         self.bench_target = int(bench_target)
         self.w_handpen = float(w_handpen)
         # Rollout pilot: "heuristic" (default) or "improved" (lethal-KO + bench-when-
-        # thin; see _choose_improved). Drives the rollout sim + the search prior.
+        # thin; see _choose_improved). The pilot drives BOTH the rollout simulation
+        # (mine + the opponent's turn at 2-ply) AND the search's prior/fallback, so a
+        # better pilot sharpens option values. Deployable (pure function, no deps).
         self.rollout_policy = rollout_policy
 
     def _pilot_choose(self, sel, obs, db):
@@ -469,19 +487,40 @@ class SearchTeacher:
             my_bench = len([b for b in (me.bench or []) if b is not None])
             my_active = len([a for a in (me.active or []) if a is not None])
             my_inplay = my_active + my_bench
+            # S1: reward developing a bench (diminishing past bench_target).
             if self.w_bench:
                 score += self.w_bench * min(my_bench, self.bench_target)
+            # S1: being at <=1 Pokemon in play is one KO from a board-out loss.
+            # Only penalise in a live (non-terminal) state; a real loss already
+            # carries -WIN_BONUS below.
             if self.fragile_penalty and cur.result == -1 and my_inplay <= 1:
                 score -= self.fragile_penalty
-            if self.w_handpen:
+            # S2: a fat hand facing a Resentful-Refrain attacker (attack 1240) is a
+            # liability (it does 50 x my hand). Penalise hand size when the opp has
+            # such an attacker in play at this leaf.
+            if self.w_handpen and (me.hand is not None or True):
                 db = get_card_db()
-                opp_can_refrain = any(
-                    p is not None and (db.card(p.id) is not None)
-                    and 1240 in (getattr(db.card(p.id), "attacks", None) or [])
-                    for p in list(opp.active or []) + list(opp.bench or [])
-                )
+                opp_can_refrain = False
+                for p in list(opp.active or []) + list(opp.bench or []):
+                    if p is None:
+                        continue
+                    c = db.card(p.id)
+                    if c and 1240 in (getattr(c, "attacks", None) or []):
+                        opp_can_refrain = True
+                        break
                 if opp_can_refrain:
-                    score -= self.w_handpen * (me.handCount or 0)
+                    my_hand = me.handCount or 0
+                    score -= self.w_handpen * my_hand
+
+        # Learned positional eval (optional, AlphaZero-style). Only at a non-
+        # terminal MY-perspective leaf (the 2-ply horizon = start of my next
+        # turn), where the obs has a select to encode. V predicts P(I win).
+        if (self.value_net is not None and self.v_scale
+                and cur.result == -1 and cur.yourIndex == yi):
+            from engine.obs import encode as _encode  # lazy: keeps base agent numpy-free
+            enc = _encode(search_obs)
+            if enc is not None:
+                score += self.v_scale * float(self.value_net(enc["state"]))
 
         # Terminal: cur.result is the winning player index, or -1.
         if cur.result == yi:

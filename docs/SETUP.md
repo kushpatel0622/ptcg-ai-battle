@@ -155,7 +155,7 @@ Activate the env first: `conda activate pokemon_tcg` (or call the env's python d
 | **Multi-deck / multi-model arena** | `python scripts/run_multideck_arena.py -n 1 --traj` |
 | **(M4+) Behavior-clone a policy** | `python scripts/train_bc.py` *(coming)* |
 | **(M5+) PPO self-play** | `python scripts/train_ppo.py` *(coming)* |
-| **(M6) Build + submit** | `tar -czvf submission.tar.gz -C submission .` then `kaggle competitions submit ...` |
+| **(M6) Build + submit** | `python scripts/build_submission.py` then `kaggle competitions submit ...` |
 
 Ollama must be running (`ollama serve`) for any LLM command.
 
@@ -196,9 +196,10 @@ https://github.com/Kaggle/kaggle-cli/blob/main/docs/simulation_competitions.md
 ## 8. Submitting
 
 ```bash
-cd submission
-tar -czvf ../submission.tar.gz *        # main.py + deck.csv + cg/ at the TOP level (not nested)
-cd ..
+# Reproducible build: enforces deck.csv==main.py DECK, blocks numpy/torch/engine
+# imports, tars only the 13 shipping files at the TOP level (excludes __pycache__).
+python scripts/build_submission.py
+python scripts/verify_tarball_isolated.py        # extract + self-games, libs import-blocked
 kaggle competitions submit pokemon-tcg-ai-battle -f submission.tar.gz -m "describe the change"
 kaggle competitions submissions pokemon-tcg-ai-battle   # check status
 ```

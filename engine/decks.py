@@ -10,9 +10,18 @@ DECKS_DIR = os.path.join(REPO_ROOT, "decks")
 
 
 def named_deck(name: str) -> list[int]:
-    """Load a deck from decks/<name>.csv (the '.csv' suffix is optional)."""
+    """Load a deck by name from decks/ (searches subfolders like top10/, testideas/).
+    The '.csv' suffix is optional."""
+    import glob
+
     fname = name if name.endswith(".csv") else name + ".csv"
-    return load_deck(os.path.join(DECKS_DIR, fname))
+    direct = os.path.join(DECKS_DIR, fname)
+    if os.path.exists(direct):
+        return load_deck(direct)
+    matches = glob.glob(os.path.join(DECKS_DIR, "**", fname), recursive=True)
+    if not matches:
+        raise FileNotFoundError(f"deck '{name}' not found under {DECKS_DIR}")
+    return load_deck(matches[0])
 
 
 def legalize_deck(card_ids, db, pad_energy_id: int = 3) -> list[int]:

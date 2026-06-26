@@ -37,7 +37,7 @@ def main() -> int:
     ap.add_argument("-n", "--games", type=int, default=12, help="games per pairing")
     args = ap.parse_args()
 
-    paths = sorted(glob.glob(os.path.join(REPO, "decks", "*.csv")))
+    paths = sorted(glob.glob(os.path.join(REPO, "decks", "**", "*.csv"), recursive=True))
     decks = {os.path.splitext(os.path.basename(p))[0]: load_deck(p) for p in paths}
     names = sorted(decks)
     print(f"Tournament: {len(names)} decks, {args.games} games/pair, heuristic pilot "
