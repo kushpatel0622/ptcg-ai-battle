@@ -20,12 +20,19 @@ competition structure, shipped a measured agent improvement, and analyzed real l
   (0 errors, **numpy/torch never loaded**, ~2.5–4× timing margin). `submission.tar.gz` at repo root.
   Deck is byte-identical to `decks/mega_starmie_ex_2.csv`. To submit (MANUAL, I can't):
   `kaggle competitions submit pokemon-tcg-ai-battle -f submission.tar.gz -m "..."`.
-- **The ONE real improvement found+shipped this session = the "improved" rollout pilot**
-  (`rl/`+`submission/search_teacher.py` `_choose_improved`): in the search rollout, **bank a lethal
-  KO immediately** (instead of overcommitting cards). vs the old heuristic pilot: pooled **n=4000
-  each, 51.0% vs 48.4% on the mirror = +2.6pt, p≈0.02**, never worse, holds the field. (A
-  bench-when-thin sub-feature was DEAD CODE — PLAY options carry `index` not `cardId` — caught by
-  adversarial review; the *working* bench rule then measured WORSE, so it's lethal-KO only.)
+- **TWO shipped agent improvements — `rollout_policy="improved_dev"` enables BOTH**
+  (`rl/`+`submission/search_teacher.py`):
+  1. **Lethal-KO** (`_choose_improved`): in the rollout, bank a lethal KO immediately instead of
+     overcommitting cards. **+2.6pt mirror** (n=4000, 51.0% vs 48.4%, p≈0.02), never worse. (A
+     bench-when-thin sub-feature was DEAD CODE — PLAY options carry `index` not `cardId` — caught by
+     adversarial review; the *working* bench rule measured WORSE.)
+  2. **Early board development** (`_choose_improved_dev` + `_develop_pick` + a HARD rule in `__call__`):
+     in the OPENING (turn≤2), if <2 Pokémon in play, force **Buddy-Buddy Poffin / bench-a-basic** before
+     searching. Fixes the **#1 real-loss cause** (lone-basic opening brick vs aggro). **Gating to the
+     opening is essential** — always-on regressed the mirror −3.7pt; opening-gated is **mirror-NEUTRAL**
+     (48.5% n=1200) AND **+5.4pt vs Mega Lucario ex (73.3→78.7%, p≈0.03)**, the deck behind 3/4 of our
+     real losses. Full detail: **`docs/strategies/S9-early-development.md`**. Rejected: +Great Ball deck
+     swap (−3.2pt mirror @ n=1500), develop-to-3 (worse). Commit **85fed0b**.
 - **COMPETITION STRUCTURE (newly confirmed — important):** TWO linked Kaggle categories.
   (1) **Simulation** = automated live ladder, Gaussian/TrueSkill rating (rises on wins, falls on
   losses, **margin doesn't matter**, matched vs similar skill). Our ~600 is ~the **starting/floor**
