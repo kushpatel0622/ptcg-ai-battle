@@ -38,12 +38,15 @@ HIST = os.path.join(OPT, "history.jsonl")
 # Strong, DIVERSE gauntlet (anti-over-fit): (deck_name, opp_plies). Piloted at
 # plies=2 so they are well-played (the "smart tests"). Spread of archetypes.
 GAUNTLET = [
-    ("mega_starmie_ex", 2),       # peer Water aggro (the replay killer line)
-    ("starmie_aggro_tuned", 2),   # Water aggro variant
-    ("lightning_counter", 2),     # Lightning
-    ("dragapult_ex_meta", 2),     # Dragon/spread
+    ("opp_lucario", 2),           # REAL ladder counter (Fighting, Mega Lucario ex) — 3/4 losses
+    ("opp_bellibolt", 2),         # REAL ladder counter (Lightning, Iono/Bellibolt ex) — 1/4 losses
+    ("mega_starmie_ex", 2),       # the mirror peer (no-regression guard)
+    ("dragapult_ex_meta", 2),     # a field deck (no-regression guard)
 ]
-BASE_CFG = dict(plies=2, samples=1, dynamic_attack=True)
+# Fitness = win% vs the decks that ACTUALLY beat us; the rest are no-regression guards.
+PRIMARY = {"opp_lucario", "opp_bellibolt"}
+# Champion ships the improved (lethal-KO) rollout pilot proven in S7/S7b.
+BASE_CFG = dict(plies=2, samples=1, dynamic_attack=True, rollout_policy="improved")
 
 # Systematic swap pool (fallback when the queue is empty). Cuts target flex
 # slots; adds are Water-deck-sensible consistency/utility cards.
@@ -96,19 +99,15 @@ def _chunk(args):
     return res["wins_a"], res["wins_b"], res["draws"], res["errors"]
 
 
-PEER = GAUNTLET[0][0]   # the discriminating matchup (closest proxy to strong ladder decks)
-
-
 def evaluate(ex, deck, cfg, n_per_opp, base_seed, chunk=15, timeout=1200):
-    """Peer-primary fitness. The PEER (the only close, discriminating matchup) gets
-    2x games for a tighter CI and is the OBJECTIVE; the other 3 decks form a FIELD
-    no-regression guard (we already win them ~80-97%, so trading peer% for field% is
-    over-fitting). Returns peer_wr (+lb95) and field_wr separately."""
+    """PRIMARY-primary fitness. Win% vs the PRIMARY decks (the real counters that beat
+    us) is the OBJECTIVE; the remaining GUARD decks (mirror + a field deck) must not
+    regress. Returns prim_wr (+lb95) and guard_wr separately so we improve vs what
+    beats us without breaking the matchups we already win."""
     per_opp = {}
     tot_err = 0
     for name, opp_plies in GAUNTLET:
-        n = n_per_opp * (2 if name == PEER else 1)
-        jobs, rem, k = [], n, 0
+        jobs, rem, k = [], n_per_opp, 0
         while rem > 0:
             c = min(chunk, rem)
             jobs.append((deck, name, cfg, opp_plies, c, base_seed + k * 131 + hash(name) % 1000))
@@ -122,13 +121,15 @@ def evaluate(ex, deck, cfg, n_per_opp, base_seed, chunk=15, timeout=1200):
                 er += 1
         per_opp[name] = (w, w + l, (w / (w + l) if (w + l) else 0.0))
         tot_err += er
-    pw, pdec, pwr = per_opp[PEER]
-    fw = sum(per_opp[k][0] for k in per_opp if k != PEER)
-    fdec = sum(per_opp[k][1] for k in per_opp if k != PEER)
-    aw = pw + fw; adec = pdec + fdec
-    return dict(peer_wr=pwr, peer_w=pw, peer_dec=pdec, peer_lb95=wilson_lb95(pw, pdec),
-                field_wr=(fw / fdec if fdec else 0.0), field_w=fw, field_dec=fdec,
-                wr=(aw / adec if adec else 0.0), dec=adec, per_opp=per_opp, err=tot_err)
+    pw = sum(per_opp[k][0] for k in per_opp if k in PRIMARY)
+    pdec = sum(per_opp[k][1] for k in per_opp if k in PRIMARY)
+    gw = sum(per_opp[k][0] for k in per_opp if k not in PRIMARY)
+    gdec = sum(per_opp[k][1] for k in per_opp if k not in PRIMARY)
+    return dict(prim_wr=(pw / pdec if pdec else 0.0), prim_w=pw, prim_dec=pdec,
+                prim_lb95=wilson_lb95(pw, pdec),
+                guard_wr=(gw / gdec if gdec else 1.0), guard_w=gw, guard_dec=gdec,
+                wr=((pw + gw) / (pdec + gdec) if (pdec + gdec) else 0.0),
+                dec=pdec + gdec, per_opp=per_opp, err=tot_err)
 
 
 def load_champion():
@@ -242,35 +243,34 @@ def main():
             seed += 1000
             champ_res = evaluate(ex, champ["deck"], champ["config"], args.n_per_opp, seed)
             log(f"\n[round {rnd} {_ts()}] src={src}  champ '{champ['label']}'  "
-                f"PEER {champ_res['peer_wr']:.1%} (lb95 {champ_res['peer_lb95']:.1%}, "
-                f"n={champ_res['peer_dec']})  field {champ_res['field_wr']:.1%}  "
-                f"agg {champ_res['wr']:.1%}")
+                f"PRIMARY(counters) {champ_res['prim_wr']:.1%} (lb95 {champ_res['prim_lb95']:.1%}, "
+                f"n={champ_res['prim_dec']})  guard {champ_res['guard_wr']:.1%}  "
+                f"[{' '.join(f'{k.split(chr(95))[0]}:{v[2]:.0%}' for k,v in champ_res['per_opp'].items())}]")
             best = None
             for label, deck, cfg in challengers:
                 if not _legal(deck):
                     log(f"  - {label}: ILLEGAL, skipped"); continue
                 r = evaluate(ex, deck, cfg, args.n_per_opp, seed)
-                rec = dict(round=rnd, ts=_ts(), label=label, peer_wr=r["peer_wr"],
-                           peer_lb95=r["peer_lb95"], field_wr=r["field_wr"], wr=r["wr"],
+                rec = dict(round=rnd, ts=_ts(), label=label, prim_wr=r["prim_wr"],
+                           prim_lb95=r["prim_lb95"], guard_wr=r["guard_wr"], wr=r["wr"],
                            n=r["dec"], per_opp={k: v[2] for k, v in r["per_opp"].items()},
                            config=cfg)
                 hist(rec)
                 po = " ".join(f"{k.split('_')[0]}:{v[2]:.0%}" for k, v in r["per_opp"].items())
-                # PEER-PRIMARY promotion: must improve the hard matchup with lb95
-                # confidence AND not regress the field (>3pt). Prevents trading the
-                # discriminating peer% for already-won easy decks (over-fit).
-                beats = (r["peer_wr"] > champ_res["peer_wr"] + args.promote_margin
-                         and r["peer_lb95"] >= champ_res["peer_wr"]
-                         and r["field_wr"] >= champ_res["field_wr"] - 0.03)
-                tag = "  <== beats champion (peer)" if beats else ""
-                if beats and (best is None or r["peer_wr"] > best[1]["peer_wr"]):
+                # PRIMARY-primary promotion: must improve win% vs the real counters with
+                # lb95 confidence AND not regress the guard (mirror/field) by >4pt.
+                beats = (r["prim_wr"] > champ_res["prim_wr"] + args.promote_margin
+                         and r["prim_lb95"] >= champ_res["prim_wr"]
+                         and r["guard_wr"] >= champ_res["guard_wr"] - 0.04)
+                tag = "  <== beats champion (counters)" if beats else ""
+                if beats and (best is None or r["prim_wr"] > best[1]["prim_wr"]):
                     best = (label, r, deck, cfg)
-                log(f"  - {label}: PEER {r['peer_wr']:.1%} (lb95 {r['peer_lb95']:.1%}) "
-                    f"field {r['field_wr']:.1%} [{po}]{tag}")
+                log(f"  - {label}: counters {r['prim_wr']:.1%} (lb95 {r['prim_lb95']:.1%}) "
+                    f"guard {r['guard_wr']:.1%} [{po}]{tag}")
 
             def _champ_record(lbl, dck, cf, res):
-                return dict(label=lbl, deck=dck, config=cf, score=res["peer_wr"],
-                            peer_wr=res["peer_wr"], field_wr=res["field_wr"],
+                return dict(label=lbl, deck=dck, config=cf, score=res["prim_wr"],
+                            prim_wr=res["prim_wr"], guard_wr=res["guard_wr"],
                             per_opp={k: v[2] for k, v in res["per_opp"].items()},
                             n=res["dec"], ts=_ts())
 
@@ -278,8 +278,8 @@ def main():
                 label, r, deck, cfg = best
                 champ = _champ_record(label, deck, cfg, r)
                 save_champion(champ)
-                log(f"  >> PROMOTED new champion: {label}  PEER {r['peer_wr']:.1%} "
-                    f"(lb95 {r['peer_lb95']:.1%})  field {r['field_wr']:.1%}")
+                log(f"  >> PROMOTED new champion: {label}  counters {r['prim_wr']:.1%} "
+                    f"(lb95 {r['prim_lb95']:.1%})  guard {r['guard_wr']:.1%}")
             else:
                 champ = _champ_record(champ["label"], champ["deck"], champ["config"], champ_res)
                 save_champion(champ)

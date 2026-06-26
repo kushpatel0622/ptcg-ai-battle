@@ -240,6 +240,68 @@ def _choose_improved_bench(sel, obs, db):
     return pick if pick is not None else _choose_dyn(sel, obs, db)
 
 
+POFFIN_ID = 1086   # Buddy-Buddy Poffin: search deck for up to 2 Basics (<=70 HP) to the bench
+
+
+def _develop_pick(sel, obs, db, target=2, max_turn=2):
+    """When we have < `target` Pokemon in play (and it's still the opening, turn <=
+    `max_turn`), DEVELOP THE BOARD first: play Buddy-Buddy Poffin (fetches Basics from
+    deck to the bench) or bench a Basic from hand, before doing anything else. This is
+    the exact fix for the lone-basic OPENING brick that loses games to aggro (real
+    losses 81957650/81957151: the agent held Poffin and a 2nd basic and passed with a
+    lone attacker, then got picked off). Gated to the opening so it does NOT cost
+    mid/late-game tempo in the mirror. Returns an option-index list or None."""
+    from cg.api import SelectType, OptionType
+    if sel.type != SelectType.MAIN or obs.current is None:
+        return None
+    st = obs.current
+    if max_turn is not None and (getattr(st, "turn", 0) or 0) > max_turn:
+        return None
+    me = st.players[st.yourIndex]
+    inplay = (len([a for a in (me.active or []) if a is not None])
+              + len([b for b in (me.bench or []) if b is not None]))
+    if inplay >= target:
+        return None
+    hand = me.hand or []
+    poffin_i = basic_i = None
+    for i, o in enumerate(sel.option):
+        if o.type == OptionType.PLAY and o.index is not None and 0 <= o.index < len(hand):
+            cid = hand[o.index].id
+            if cid == POFFIN_ID and poffin_i is None:
+                poffin_i = i                       # Poffin = 2 Basics to bench: best development
+            elif (basic_i is None and db.is_pokemon(cid)
+                  and getattr(db.card(cid), "basic", False)):
+                basic_i = i                        # else bench a Basic from hand
+    if poffin_i is not None:
+        return [poffin_i]
+    if basic_i is not None:
+        return [basic_i]
+    return None
+
+
+def _choose_improved_dev(sel, obs, db):
+    """Improved (lethal-KO) + EARLY BOARD DEVELOPMENT (play Poffin / bench a Basic when
+    we have <2 Pokemon in play, opening only). Targets the #1 real-loss cause."""
+    pick = _improved_pick(sel, obs, db, bench_when_thin=False)   # take a lethal KO first
+    if pick is not None:
+        return pick
+    dev = _develop_pick(sel, obs, db, target=2)                  # else develop if thin (opening)
+    if dev is not None:
+        return dev
+    return _choose_dyn(sel, obs, db)
+
+
+def _choose_improved_dev3(sel, obs, db):
+    """Like improved_dev but develops to 3 Pokemon in the opening (target=3)."""
+    pick = _improved_pick(sel, obs, db, bench_when_thin=False)
+    if pick is not None:
+        return pick
+    dev = _develop_pick(sel, obs, db, target=3)
+    if dev is not None:
+        return dev
+    return _choose_dyn(sel, obs, db)
+
+
 class SearchTeacher:
     def __init__(self, deck=None, rng=None, plies=1, opp_model=None, samples=1,
                  override_margin=None, time_budget=None,
@@ -340,6 +402,10 @@ class SearchTeacher:
             return _choose_improved(sel, obs, db)
         if self.rollout_policy == "improved_bench":
             return _choose_improved_bench(sel, obs, db)
+        if self.rollout_policy == "improved_dev":
+            return _choose_improved_dev(sel, obs, db)
+        if self.rollout_policy == "improved_dev3":
+            return _choose_improved_dev3(sel, obs, db)
         return _choose_dyn(sel, obs, db) if self.dynamic_attack else _heur_choose(sel, obs, db)
 
     # ---- helpers -------------------------------------------------------
@@ -686,6 +752,16 @@ class SearchTeacher:
         # Delegate non-strategic / multi-select / forced decisions.
         if obs.current is None or not self._learnable(sel, n):
             return heuristic_agent(obs_dict)
+
+        # HARD early-development rule (improved_dev): when our board is thin (<2 Pokemon
+        # in play), ALWAYS develop -- play Buddy-Buddy Poffin / bench a Basic -- instead
+        # of searching. The lone-basic brick is the #1 real-loss cause (it costs games to
+        # aggro) and the search under-values board development (it tested mirror-neutral).
+        if self.rollout_policy in ("improved_dev", "improved_dev3"):
+            tgt = 3 if self.rollout_policy == "improved_dev3" else 2
+            dev = _develop_pick(sel, obs, get_card_db(), target=tgt)
+            if dev is not None:
+                return self._sanitize(dev, sel)
 
         best_i = self._search_choice(obs)
         if best_i is None:

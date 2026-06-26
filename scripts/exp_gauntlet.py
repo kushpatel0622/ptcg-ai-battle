@@ -31,6 +31,9 @@ GAUNTLET = [
     ("lightning_counter",    "Lightning"),
     ("dragapult_spread",     "Dragon/spread"),
     ("single_prize_control", "Control"),
+    # Real ladder opponents that BEAT us (from loss replays):
+    ("opp_lucario",          "Fighting/MegaLucario"),
+    ("opp_bellibolt",        "Lightning/Bellibolt"),
 ]
 
 # OUR-agent variants. Each maps to SearchTeacher kwargs (deck/rng added per worker).
@@ -42,6 +45,8 @@ CONFIGS = {
     # Phase 1: improved rollout pilot (lethal-KO; bench-when-thin variant separate).
     "improved":  dict(_BASE, rollout_policy="improved"),
     "improved_bench": dict(_BASE, rollout_policy="improved_bench"),
+    "dev":       dict(_BASE, rollout_policy="improved_dev"),
+    "dev3":      dict(_BASE, rollout_policy="improved_dev3"),
     # Phase 2: config/eval tuning ON TOP of the improved pilot.
     "imp_m5":    dict(_BASE, rollout_policy="improved", override_margin=5.0),
     "imp_m50":   dict(_BASE, rollout_policy="improved", override_margin=50.0),

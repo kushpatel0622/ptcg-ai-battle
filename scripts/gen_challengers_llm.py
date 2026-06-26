@@ -92,24 +92,26 @@ CURRENT DECK (60 cards) — dual Mega Water aggro (Snorunt->Mega Froslass ex, St
 CANDIDATE CARDS available in this card pool (you may ADD these / adjust counts):
 {pool}
 
-CONTEXT / hard-won findings (from thousands of simulated games):
-- The deck is the lever; the AI pilot is already ~even (51%) vs a strong mirror peer.
-- A real loss came from opening with only ONE basic Pokemon and no bench, then getting one-shot
-  by the mirror's Mega Froslass ex "Resentful Refrain" (50 x cards in our hand = big damage).
-- KEY UPDATE (measured): pure-CONSISTENCY edits (Ultra Ball, Arven, extra basic lines like
-  Clefairy/Tadbulb, Team Rocket's Great Ball) ALL REGRESSED the mirror matchup — they help vs
-  weak decks we already beat but lose tempo in the mirror. STOP proposing consistency-only edits.
-- The competition is decided by the MIRROR (vs Mega Froslass/Starmie Water aggro, the only close
-  matchup, ~50%). Propose edits that beat the MIRROR specifically: faster energy acceleration /
-  earlier attacker setup, going-second aggression, DISRUPTION (Boss's Orders to drag+snipe their
-  setup, gust/forced-switch), higher-impact or cheaper attacks, or out-resourcing. Tempo > consistency.
-- Tried and FAILED (measured): cutting 2 Energy Search for 2 Ultra Ball made it WORSE.
+CONTEXT / REAL ladder losses we must fix (from analyzing actual lost games):
+- We LOSE to two real meta decks: (1) Mega Lucario ex (FIGHTING aggro) — a tanky 340-HP Mega
+  that races us; (2) Iono / Bellibolt ex (LIGHTNING) — cheap 1-prize chip attackers (Voltorb/
+  Wattrel) that whittle us down (and our Mega Starmie ex is WEAK to Lightning, 2x).
+- ROOT CAUSE = PRIZE-TRADE ASYMMETRY: our deck attacks ONLY with ex Pokemon (Mega Starmie ex,
+  Mega Froslass ex) — each gives up 2 PRIZES when KO'd. The counters trade with 1-prize attackers,
+  so they need only 3 KOs to win while we need 6. We lose the prize race even when ahead on board.
+- So propose edits that fix THIS: (a) a strong SINGLE-PRIZE (non-ex) attacker so we can trade
+  1-for-1 on prizes; (b) ways to OHKO a 340-HP Mega Lucario (more damage / damage mods); (c) faster
+  setup so we aren't out-tempo'd; (d) tech vs Lightning/Fighting. Beating the COUNTERS is the goal.
+- Tried and FAILED (measured) vs the mirror: pure-consistency edits (Ultra Ball, Arven, extra basic
+  lines, Great Ball) regressed it. But vs these COUNTERS the priority is prize efficiency + power,
+  not mirror tempo.
 - Rules: EXACTLY 60 cards; at most 4 copies of any card except basic Energy; at most 1 ACE SPEC;
   at least 1 Basic Pokemon. Keep both Mega lines functional (need basics + their Stage-1 evolutions
   + enough Water energy ~9-12).
 
-TASK: propose {{N}} DISTINCT, legal deck edits aimed at WINNING THE MIRROR (tempo/disruption/
-acceleration), NOT raw consistency.
+TASK: propose {{N}} DISTINCT, legal deck edits aimed at BEATING THE COUNTERS (Mega Lucario ex
+Fighting + Iono/Bellibolt ex Lightning) — prize-trade efficiency (single-prize attackers), raw
+power (OHKO a 340-HP Mega), and faster setup.
 Each edit = a small set of CUTS and ADDS that keep the deck at exactly 60 cards.
 Return STRICT JSON only, no prose:
 {{"edits":[{{"label":"short-name","cut":[[id,count],...],"add":[[id,count],...],"rationale":"one sentence"}}]}}

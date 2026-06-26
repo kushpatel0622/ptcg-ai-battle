@@ -1,10 +1,107 @@
 # Project handoff — Pokémon TCG AI Battle
 
-Quick-start for a fresh session. Read this first, then `PLAN.md`, `TRAINING_LOG.md`, `CARD_KNOWLEDGE.md`.
-**Read the SESSION 2 addendum (below) first — it supersedes the 2026-06-23 TL;DR for the deck/strategy
-question.** The 2026-06-23 section is kept verbatim further down as earlier context.
+Quick-start for a fresh session. Read this first, then `docs/strategies/` (the detailed audit
+trail), then `PLAN.md` / `TRAINING_LOG.md` / `CARD_KNOWLEDGE.md`.
+**Read the SESSION 3 addendum (immediately below) FIRST — it is the current state and supersedes
+SESSION 2 for the deck/agent/strategy question.** Earlier sessions kept verbatim below as context.
 
 ---
+
+# ⭐⭐ SESSION 3 ADDENDUM (2026-06-25 → 26) — improved pilot SHIPPED; competition structure; real-loss analysis
+
+_This is the CURRENT state. Detailed per-strategy docs live in `docs/strategies/` (README + CHANGELOG
++ DECISIONS + SUMMARY + Sx files). This session: cleaned/hardened the submission, learned the real
+competition structure, shipped a measured agent improvement, and analyzed real ladder losses._
+
+## TL;DR (state as of 2026-06-26)
+- **SHIPPED SUBMISSION (final, verified):** `mega_starmie_ex_2` + `SearchTeacher(plies=2, samples=1,
+  dynamic_attack=True, time_budget=1.0, rollout_policy="improved_dev")`. Built by
+  `python scripts/build_submission.py`, verified by `python scripts/verify_tarball_isolated.py`
+  (0 errors, **numpy/torch never loaded**, ~2.5–4× timing margin). `submission.tar.gz` at repo root.
+  Deck is byte-identical to `decks/mega_starmie_ex_2.csv`. To submit (MANUAL, I can't):
+  `kaggle competitions submit pokemon-tcg-ai-battle -f submission.tar.gz -m "..."`.
+- **The ONE real improvement found+shipped this session = the "improved" rollout pilot**
+  (`rl/`+`submission/search_teacher.py` `_choose_improved`): in the search rollout, **bank a lethal
+  KO immediately** (instead of overcommitting cards). vs the old heuristic pilot: pooled **n=4000
+  each, 51.0% vs 48.4% on the mirror = +2.6pt, p≈0.02**, never worse, holds the field. (A
+  bench-when-thin sub-feature was DEAD CODE — PLAY options carry `index` not `cardId` — caught by
+  adversarial review; the *working* bench rule then measured WORSE, so it's lethal-KO only.)
+- **COMPETITION STRUCTURE (newly confirmed — important):** TWO linked Kaggle categories.
+  (1) **Simulation** = automated live ladder, Gaussian/TrueSkill rating (rises on wins, falls on
+  losses, **margin doesn't matter**, matched vs similar skill). Our ~600 is ~the **starting/floor**
+  rating; top ~1367. **5 agents/day, only the latest 2 count.** Deadline **2026-08-16**, then ~2 weeks
+  convergence then lock. (2) **Strategy** = the JUDGED, prize-bearing track, scored **Model 70% /
+  Deck 20% / Report 10%**; entry requires being in Simulation. **The prize is judged on the
+  approach+report, NOT ladder rank** — so `docs/strategies/` + `docs/REPORT.md` are ~80% of the
+  scored deliverable. Tenure does NOT win the ladder; win-rate does (a stronger late agent overtakes).
+- **The DECK is settled: `mega_starmie_ex_2` is the best of everything tried** (~66 + ~41 challengers
+  across two big high-n searches; nothing beat it). The mirror is a **structural ~50% coinflip**.
+
+## CRITICAL methodology lessons (do NOT relearn — cost us flat-wrong conclusions)
+1. **n≥500 or you chase noise.** Engine RNG is UNSEEDED (in the compiled `cg` lib; Python seed only
+   sets determinization, not the games). n=200 swings ±7pt and produced a reversed "+5pt" result.
+   Compare configs/decks at **n≥500–800**, report Wilson **lb95**, promote only on confident gain.
+2. **We MISPILOT opponent decks → we cannot honestly measure matchups where we pilot the opponent.**
+   Our SearchTeacher plays our deck well but pilots OTHER decks poorly. So internal "vs deck X"
+   numbers are inflated/unreliable; only the MIRROR (us-vs-us) and seat-symmetric measures are trusted.
+   (This is why the real ladder losses can't be reproduced in sim — see below.)
+3. **Optimize the discriminating matchup, not an equal-weight aggregate** (aggregate masks regressions
+   on the matchup that matters → noise-promotes over-fit decks). `scripts/opt_loop.py` uses a
+   PRIMARY-objective + GUARD no-regression design.
+4. **The simulator is the arbiter; adversarial review catches what self-review misses** (a 3-agent
+   review found the dead-code bench bug + a false doc claim).
+
+## Real ladder-loss analysis (`docs/strategies/counter-analysis.md`) — the headline
+User provided 4 real LOSSES (replays): 3× **Mega Lucario ex** (Fighting, tanky 340 HP), 1× **Iono/
+Bellibolt ex** (Lightning; our Mega Starmie ex is Lightning-weak 2×). Findings:
+- **Prize-trade asymmetry** (root cause): our deck attacks ONLY with `ex` Pokémon (2 prizes/KO); the
+  counters trade with 1-prize attackers → they need 3 KOs, we need 6.
+- **BUT in fair (mispilot-inflated) sim we BEAT them** (Lucario ~75%, Bellibolt ~81%) → **they are NOT
+  hard counters.** The losses are the **variance tail of favorable matchups** (slow/brick openings +
+  going first + a skilled opponent). We literally **can't reproduce the losses** (can't pilot their
+  decks at the real level).
+- **Prize-asymmetry is NOT fixable** without regressing other matchups (every single-prize/tech/
+  consistency edit lost elsewhere). Type-counter decks fail (we can't pilot Gardevoir etc.).
+- **No counter-tech ships.** Best lever = our own execution (improved pilot, shipped) + ladder volume.
+
+## REJECTED this session (don't re-litigate without new evidence; all measured at high n)
+bench/fragility eval terms (S1); hand-discipline penalty (S2); 3-ply / deeper search (S3); GPU
+value-net leaf eval (S6 — lost AND unshippable since the submission is numpy-free); consistency deck
+`2c` (Ultra Ball); eval-weight/sample/override tuning (S8); +2nd Night Stretcher (within n=800 mirror
+noise); all our OTHER decks + type-counters as the base (mega_starmie_ex_2 wins).
+
+## New tooling (`scripts/`) and infra
+- `build_submission.py` — reproducible tarball build (enforces deck.csv==DECK, blocks numpy/torch imports).
+- `verify_tarball_isolated.py` — extracts the tarball + plays isolated self-games with libs import-blocked.
+- `exp_gauntlet.py` — config-driven matchup harness (multi-opp, both seats, Wilson lb95; CONFIGS registry).
+- `opt_loop.py` — autonomous champion/challenger search (PRIMARY-objective + GUARD; lb95-gated promotion).
+- `gen_challengers_llm.py` — OpenAI gpt-4o + Anthropic sonnet (+ Sakana) as OFFLINE deck designers → queue.
+- `diag_robustness.py` (brick/fragile/hand metrics); `analyze_loss_replays.py` / `loss_narrative.py`
+  (decode replays); `eval_valuenet.py` / patched `gen_value_data.py` (GPU value-net, rejected).
+- Run artifacts in `data/opt/` (champion.json, log.md, history.jsonl) — gitignored.
+- **Real timing budget** per replay `remainingOverageTime` ≈ 600 (units per env; we use ~2–4 s/game) —
+  NOT the ~12 s the SESSION 2 M6 note assumed. Timing is a non-issue; deeper search is "free" on time
+  but did NOT help (rollout-pilot errors compound).
+
+## Git / submission state
+- Committed + pushed through **`6f85418`** (origin/main, repo github.com/kushpatel0622/ptcg-ai-battle):
+  full project + the improved pilot + `docs/strategies/` + `docs/REPORT.md`.
+- **12 files uncommitted** (this session's later/counter-training work; NOT committed — no
+  instruction to): **modified** `docs/HANDOFF.md`, `docs/strategies/CHANGELOG.md`,
+  `scripts/opt_loop.py`, `scripts/exp_gauntlet.py`, `scripts/gen_challengers_llm.py`; **untracked**
+  `docs/strategies/counter-analysis.md`, `scripts/analyze_loss_replays.py`, `scripts/loss_narrative.py`,
+  `decks/opp_lucario.csv`, `decks/opp_bellibolt.csv`, `decks/cand_promoted.csv`,
+  `decks/cand_nightstretcher.csv`. `.env` (LLM keys) + `data/` + `*.tar.gz` + the big card-ID PDFs are gitignored.
+
+## Recommended next steps (2026-06-26, priority order)
+1. **Submit the current tarball and accumulate ladder volume** — the deck/agent are near-optimal;
+   you climb on win-rate over many games (margin doesn't matter). Re-submit daily (latest 2 count).
+2. **Invest in the STRATEGY-category deliverable (where the prize is, 70/20/10 judged):** turn
+   `docs/strategies/` + `docs/REPORT.md` into a polished report (clear figures/tables, the rigorous
+   methodology, the honest negative results). This is ~80% of the scored prize and is our strength.
+3. **Do NOT chase counter-tech or more deck tweaks** — proven null; and matchup sims are mispilot-
+   unreliable. The deck is settled.
+4. (Optional) Commit the uncommitted counter-training work if you want it in the repo.
 
 # ⭐ SESSION 2 ADDENDUM (2026-06-24) — the DECK is the lever; full 8-deck tournament
 

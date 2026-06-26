@@ -110,4 +110,52 @@ All times EST, 2026-06-25 unless noted. Newest at the bottom within a day.
   (significant). Submission rebuilt + re-verified (0 errors, numpy-free). Docs corrected
   ([S7](S7-rollout-pilot.md) correction, [S7b](S7b-bench-fix.md), [DECISIONS](DECISIONS.md) D19–D21).
 
+- **02:31 (counter-training tick 1)** — Analyzed the 4 real ladder losses (3× Mega Lucario ex
+  Fighting, 1× Iono/Bellibolt ex Lightning). **DECISIVE FINDING ([counter-analysis.md](counter-analysis.md)):**
+  in equal-pilot sim our deck **BEATS** them (Lucario 75%, Bellibolt 81%, n=400) — because our
+  agent **mispilots the opponents' decks** (the project's oldest trap). So these are NOT hard
+  counters; the real losses are the **variance tail** of favorable matchups (slow/brick openings +
+  opponent skill), and we **can't reliably train the matchup internally** (can't pilot their decks
+  at the real level). Type-counter decks fail (gardevoir 2% mirror — our agent can't pilot them).
+  mega_starmie_ex_2 remains best vs the counters. Skipped LLM refill this tick (counter-objective
+  is mispilot-unreliable). Run continues to 08:00 (guard-protected); conclusion at the wrap.
+
+- **03:24 (counter-training tick 2)** — Healthy, 0 promotions, 11 challengers tested; **no
+  mirror-safe gem** (nothing beats the counters AND holds the mirror ≥50%). Confirms: champion
+  `mega_starmie_ex_2` + improved pilot holds; no counter-tech to chase (counter-objective is
+  mispilot-unreliable anyway). Stretched monitoring to ~60 min (stable; nothing actionable until wrap).
+
+- **05:28 (counter-training tick 4)** — Healthy, still 0 promotions / 26 challengers. One
+  candidate flagged: `swap -1122+1097` (cut 1 Pokégear, +1 Night Stretcher = recovery/recursion)
+  scored counters 79.5% AND held mirror 52% (n=200). Counter # is mispilot-unreliable and 52%
+  mirror is within champion noise, so likely not real — but saved as `decks/cand_nightstretcher.csv`
+  for a high-n MIRROR confirmation at the final wrap (ship only if it confidently beats the
+  champion on the mirror without regression).
+
+- **06:30 (counter-training tick 5)** — A (likely-noise) promotion fired: `swap -1119+1097`
+  (−1 Energy Search, +2nd Night Stretcher) — counters 80%, mirror 53%. 4 "gems" all cluster at
+  mirror ~52% = the champion's mirror dipped that round (n=200 noise). BUT multiple top swaps add
+  **Night Stretcher (recovery)** — a recurring theme worth a real check. Saved `cand_promoted.csv`
+  (=swap -1119+1097). The WRAP will high-n (n≥800) MIRROR-confirm the +Night-Stretcher variants
+  (cand_promoted, cand_nightstretcher) vs baseline; ship only if one confidently beats the champion
+  on the mirror without regression.
+
+- **07:22 — FINAL WRAP (counter-training).** Stopped the loop early (user wrap request). Overnight
+  run = 41 challengers vs the real counters, **0 confident improvements**. High-n (n=800) MIRROR
+  check of the recurring +Night-Stretcher variants: baseline 48.5% vs cand_promoted 50.5% (lb95
+  47.0%) vs cand_nightstretcher 48.6% — **within noise, not shipped.** **Submission UNCHANGED**
+  (mega_starmie_ex_2 + improved pilot). Conclusion in [counter-analysis.md](counter-analysis.md):
+  the counters are NOT hard counters (we're favored in mispilot-inflated sim), prize-asymmetry
+  isn't fixable without regressing elsewhere, best lever = own execution (shipped) + ladder volume.
+  Counter-training run COMPLETE.
+
+- **(post-handoff) EARLY-DEVELOPMENT RULE SHIPPED ([S9](S9-early-development.md)).** Move-by-move
+  decode of the real losses (`scripts/replay_movelog.py`) → the lone-basic OPENING brick, with the
+  agent holding Poffin/a 2nd basic and not playing them. Added `rollout_policy="improved_dev"`:
+  in the opening (turn≤2), if <2 Pokémon in play, force Poffin/bench-a-basic. **Gating to the
+  opening is the key** — always-on regressed the mirror −3.7pt; opening-gated is mirror-NEUTRAL
+  (48.5% n1200) AND **+5.4pt vs Mega Lucario ex (73.3→78.7%, p≈0.03)**, the deck that caused 3/4
+  losses. Deck swap +Great Ball REJECTED (−3.2pt mirror at n1500). **Shipped on mega_starmie_ex_2;
+  rebuilt + verified (0 errors, numpy-free, 3.7× margin).** Submission now = improved_dev pilot.
+
 <!-- monitoring ticks append promotions / new experiments below -->
